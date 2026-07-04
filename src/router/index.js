@@ -1,5 +1,5 @@
 import { createRouter, createWebHistory } from 'vue-router';
-import { authState } from '../services/auth_service';
+import { authState, hasRole } from '../services/auth_service';
 
 const routes = [
   {
@@ -19,6 +19,42 @@ const routes = [
     name: 'AuthCallback',
     component: () => import('../views/auth_callback.vue'),
     meta: { requiresAuth: false }
+  },
+  {
+    path: '/solicitudes',
+    name: 'Requests',
+    component: () => import('../views/requests_view.vue'),
+    meta: { requiresAuth: true }
+  },
+  {
+    path: '/solicitudes/nueva',
+    name: 'RequestCreate',
+    component: () => import('../views/request_create_view.vue'),
+    meta: { requiresAuth: true, roles: ['docente', 'laboratorista'] }
+  },
+  {
+    path: '/solicitudes/:id',
+    name: 'RequestDetail',
+    component: () => import('../views/request_detail_view.vue'),
+    meta: { requiresAuth: true }
+  },
+  {
+    path: '/inventario',
+    name: 'Inventory',
+    component: () => import('../views/inventory_view.vue'),
+    meta: { requiresAuth: true, roles: ['laboratorista'] }
+  },
+  {
+    path: '/usuarios',
+    name: 'Users',
+    component: () => import('../views/users_view.vue'),
+    meta: { requiresAuth: true, roles: ['laboratorista'] }
+  },
+  {
+    path: '/reportes',
+    name: 'Reports',
+    component: () => import('../views/reports_view.vue'),
+    meta: { requiresAuth: true, roles: ['laboratorista'] }
   }
 ];
 
@@ -33,6 +69,11 @@ router.beforeEach((to, from, next) => {
 
   if (requiresAuth && !isAuthenticated) {
     return next({ name: 'Login' });
+  }
+
+  const allowedRoles = to.meta.roles || [];
+  if (allowedRoles.length && !hasRole(allowedRoles)) {
+    return next({ name: 'Home' });
   }
 
   if (to.name === 'Login' && isAuthenticated) {

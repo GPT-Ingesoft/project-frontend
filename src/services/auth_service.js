@@ -3,16 +3,60 @@ import axios from "axios";
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000/api';
 const api = axios.create({ baseURL: API_URL });
 
+export const demoUser = {
+  id: 1,
+  name: 'Usuario Demo',
+  email: 'demo@unal.edu.co',
+  role: 'laboratorista',
+  active: true,
+  created_at: new Date().toISOString(),
+};
+
+export const isDemoMode = () => localStorage.getItem('syslab_demo') === 'true';
+
 export const authState = {
-  user: JSON.parse(localStorage.getItem('user')) || null,
+  user: JSON.parse(localStorage.getItem('user')) || (isDemoMode() ? demoUser : null),
   accessToken: localStorage.getItem('access_token'),
   refreshToken: localStorage.getItem('refresh_token'),
-  isAuthenticated: !!localStorage.getItem('access_token'),
+  isAuthenticated: !!localStorage.getItem('access_token') || isDemoMode(),
+};
+
+export const getUserRole = () => authState.user?.role || authState.user?.rol || '';
+
+export const hasRole = (roles = []) => {
+  if (!roles.length) return true;
+  return roles.includes(getUserRole());
+};
+
+export const permissions = {
+  isLabTechnician: () => getUserRole() === 'laboratorista',
+  isTechnician: () => getUserRole() === 'tecnico',
+  isTeacher: () => getUserRole() === 'docente',
+  canManageUsers: () => getUserRole() === 'laboratorista',
+  canManageInventory: () => getUserRole() === 'laboratorista',
+  canViewReports: () => getUserRole() === 'laboratorista',
+  canManageRequests: () => getUserRole() === 'laboratorista',
+  canUploadAttachments: () => ['laboratorista', 'tecnico'].includes(getUserRole()),
+  canCreateRequests: () => ['laboratorista', 'docente'].includes(getUserRole()),
 };
 
 export const authService = {
   login() {
     window.location.href = `${API_URL}/auth/login/google/`;
+  },
+
+  startDemoSession() {
+    localStorage.setItem('syslab_demo', 'true');
+    localStorage.setItem('access_token', 'demo-access-token');
+    localStorage.setItem('refresh_token', 'demo-refresh-token');
+    localStorage.setItem('user', JSON.stringify(demoUser));
+
+    Object.assign(authState, {
+      user: demoUser,
+      accessToken: 'demo-access-token',
+      refreshToken: 'demo-refresh-token',
+      isAuthenticated: true,
+    });
   },
 
   async handleCallback() {
@@ -63,6 +107,12 @@ export const authService = {
   },
 
   async getMe() {
+    if (isDemoMode()) {
+      authState.user = demoUser;
+      localStorage.setItem('user', JSON.stringify(demoUser));
+      return demoUser;
+    }
+
     try {
       const res = await api.get('/auth/me/');
       authState.user = res.data;

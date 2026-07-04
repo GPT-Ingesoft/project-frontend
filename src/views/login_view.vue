@@ -40,7 +40,7 @@ import LoginButton from '../components/login_button.vue';
 <style scoped>
 .login-view {
   width: 100%;
-  height: 100vh;
+  min-height: 100vh;
   background: #FFFFFF;
   display: flex;
   flex-direction: column;
@@ -49,34 +49,36 @@ import LoginButton from '../components/login_button.vue';
 
 /* --- Header --- */
 .sys-header {
-  height: 8vh;
+  min-height: 76px;
   width: 100%;
   background: #b1b2b5;
   display: flex;
   align-items: center;
-  padding-left: 100px;
+  gap: 10px;
+  padding: 10px max(24px, calc((100vw - 1100px) / 2));
   box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+  box-sizing: border-box;
 }
 
 .logo-sm {
-  height: 60px;
+  height: clamp(44px, 7vw, 60px);
   width: auto;
-  margin-right: 1px;
+  flex: 0 0 auto;
 }
 
 .sys-title {
-  font-size: 30px;
+  font-size: clamp(22px, 4vw, 30px);
   font-weight: 400;
-  padding-left: 10px;
   display: flex;
+  flex-wrap: wrap;
+  line-height: 1.1;
 }
 
 /* --- Login - Box --- */
 .login-card {
-  margin: auto; 
-  
-  width: 900px;
-  height: 500px;
+  margin: auto;
+  width: min(900px, calc(100% - 32px));
+  min-height: 500px;
   background: rgba(177,178,181,0.75);
   border-radius: 8px;
   overflow: hidden;
@@ -91,18 +93,21 @@ import LoginButton from '../components/login_button.vue';
   display: flex;
   justify-content: center;
   align-items: center;
+  padding: 0 20px;
+  text-align: center;
 }
 
 .card-title {
   color: #000000;
-  font-size: 30px;
+  font-size: clamp(20px, 4vw, 30px);
   text-transform: uppercase;
   letter-spacing: 1px;
   margin: 0;
 }
 
 .card-body {
-  display: flex;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
 }
 
 .left-panel {
@@ -115,21 +120,58 @@ import LoginButton from '../components/login_button.vue';
 }
 
 .right-panel {
-  flex: 1; 
   display: flex;
   flex-direction: column;
   justify-content: center;
   align-items: center;
   gap: 30px;
+  padding: 30px;
+  text-align: center;
 }
 
 .card-logo-text {
-  font-size: 40px;
+  font-size: clamp(28px, 5vw, 40px);
   font-weight: 400;
+  line-height: 1.1;
 }
 
 .logo-lg {
-  width: 200px;
+  width: min(200px, 48vw);
   height: auto;
+}
+
+@media (max-width: 720px) {
+  .login-view {
+    min-height: 100svh;
+  }
+
+  .sys-header {
+    justify-content: center;
+    padding-inline: 16px;
+  }
+
+  .login-card {
+    grid-template-rows: auto 1fr;
+    min-height: auto;
+    margin: 24px auto;
+  }
+
+  .card-top-bar {
+    min-height: 72px;
+  }
+
+  .card-body {
+    grid-template-columns: 1fr;
+  }
+
+  .right-panel {
+    order: -1;
+    gap: 16px;
+    padding: 28px 24px 12px;
+  }
+
+  .left-panel {
+    padding: 20px 24px 30px;
+  }
 }
 </style>
