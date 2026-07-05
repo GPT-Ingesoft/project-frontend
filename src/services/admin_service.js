@@ -80,6 +80,26 @@ export const adminService = {
     return res.data;
   },
 
+  async getOutOfServiceThreshold() {
+    if (isDemoMode()) {
+      return { umbral_dias: 30 };
+    }
+
+    const res = await api.get('/admin/reportes/fuera-de-servicio/umbral/');
+    return res.data;
+  },
+
+  async setOutOfServiceThreshold(thresholdDays) {
+    if (isDemoMode()) {
+      return { umbral_dias: thresholdDays };
+    }
+
+    const res = await api.patch('/admin/reportes/fuera-de-servicio/umbral/', {
+      umbral_dias: thresholdDays,
+    });
+    return res.data;
+  },
+
   async getNotifications() {
     if (isDemoMode()) {
       return { total: demoNotifications.length, notificaciones: demoNotifications };

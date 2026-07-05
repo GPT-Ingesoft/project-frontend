@@ -97,15 +97,27 @@ export const userService = {
     return res.data;
   },
 
-  async assignRole(userId, role) {
+  async assignRole(userId, role, technicianData = {}) {
     if (isDemoMode()) {
       const { users, user } = findDemoUser(userId);
       user.role = role;
+      if (role === 'tecnico') {
+        user.specialty = technicianData.specialty || user.specialty || '';
+        user.contact = technicianData.contact || user.contact || '';
+      } else {
+        user.specialty = '';
+        user.contact = '';
+      }
       writeDemoUsers(users);
       return { message: 'Rol actualizado correctamente.', user };
     }
 
-    const res = await api.patch(`/users/${userId}/role/`, { role });
+    const payload = { role };
+    if (role === 'tecnico') {
+      payload.specialty = technicianData.specialty;
+      payload.contact = technicianData.contact;
+    }
+    const res = await api.patch(`/users/${userId}/role/`, payload);
     return res.data;
   },
 

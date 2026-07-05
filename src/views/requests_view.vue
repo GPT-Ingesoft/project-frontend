@@ -1,7 +1,6 @@
 <script setup>
 import { onMounted, ref } from 'vue';
 import { RouterLink, useRouter } from 'vue-router';
-import LogoutButton from '../components/logout_button.vue';
 import { permissions } from '../services/auth_service';
 import { requestService } from '../services/request_service';
 
@@ -11,7 +10,6 @@ const requests = ref([]);
 const loading = ref(true);
 const error = ref('');
 const canManageInventory = permissions.canManageInventory;
-const canManageUsers = permissions.canManageUsers;
 
 const openRequest = () => {
   const id = String(requestId.value).trim();
@@ -43,12 +41,6 @@ onMounted(loadRequests);
         <h1>Solicitudes</h1>
         <p>Crear una solicitud nueva o consultar una solicitud existente por ID.</p>
       </div>
-      <div class="header-actions">
-        <RouterLink class="btn secondary" to="/">Panel</RouterLink>
-        <RouterLink v-if="canManageInventory()" class="btn secondary" to="/inventario">Inventario</RouterLink>
-        <RouterLink v-if="canManageUsers()" class="btn secondary" to="/usuarios">Usuarios</RouterLink>
-        <LogoutButton />
-      </div>
     </header>
 
     <main class="content-grid">
@@ -76,8 +68,8 @@ onMounted(loadRequests);
 
     <section class="panel requests-panel">
       <h2>Solicitudes registradas</h2>
-      <p v-if="loading" class="state">Cargando solicitudes...</p>
-      <p v-else-if="error" class="state error">{{ error }}</p>
+      <p v-if="loading" class="state" role="status">Cargando solicitudes...</p>
+      <p v-else-if="error" class="state error" role="alert">{{ error }}</p>
       <p v-else-if="requests.length === 0" class="state">No hay solicitudes para mostrar.</p>
 
       <div v-else class="table-wrap">
@@ -88,7 +80,7 @@ onMounted(loadRequests);
               <th>Estado</th>
               <th>Prioridad</th>
               <th>Descripción</th>
-              <th>Accion</th>
+              <th>Acción</th>
             </tr>
           </thead>
           <tbody>

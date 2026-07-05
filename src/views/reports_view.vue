@@ -1,7 +1,5 @@
 <script setup>
 import { onMounted, ref } from 'vue';
-import { RouterLink } from 'vue-router';
-import LogoutButton from '../components/logout_button.vue';
 import { adminService } from '../services/admin_service';
 import { getErrorMessage } from '../services/error_service';
 
@@ -46,6 +44,30 @@ const loadReports = async () => {
   }
 };
 
+const loadThreshold = async () => {
+  try {
+    const response = await adminService.getOutOfServiceThreshold();
+    thresholdDays.value = response.umbral_dias ?? thresholdDays.value;
+  } catch (err) {
+    error.value = getErrorMessage(err, 'No fue posible cargar el umbral.');
+  }
+};
+
+const saveThreshold = async () => {
+  loading.value = true;
+  error.value = '';
+
+  try {
+    const response = await adminService.setOutOfServiceThreshold(thresholdDays.value);
+    thresholdDays.value = response.umbral_dias ?? thresholdDays.value;
+    await loadReports();
+  } catch (err) {
+    error.value = getErrorMessage(err, 'No fue posible guardar el umbral.');
+  } finally {
+    loading.value = false;
+  }
+};
+
 const loadNotification = async (notification) => {
   error.value = '';
 
@@ -57,7 +79,10 @@ const loadNotification = async (notification) => {
   }
 };
 
-onMounted(loadReports);
+onMounted(async () => {
+  await loadThreshold();
+  await loadReports();
+});
 </script>
 
 <template>
@@ -66,11 +91,6 @@ onMounted(loadReports);
       <div>
         <h1>Reportes</h1>
         <p>Consulta fallas, tiempos de reparación, equipos fuera de servicio y notificaciones.</p>
-      </div>
-      <div class="header-actions">
-        <RouterLink class="btn secondary" to="/">Panel</RouterLink>
-        <RouterLink class="btn secondary" to="/inventario">Inventario</RouterLink>
-        <LogoutButton />
       </div>
     </header>
 
@@ -82,10 +102,13 @@ onMounted(loadReports);
       <button class="btn" type="button" :disabled="loading" @click="loadReports">
         {{ loading ? 'Cargando...' : 'Actualizar reportes' }}
       </button>
+      <button class="btn secondary" type="button" :disabled="loading" @click="saveThreshold">
+        Guardar umbral
+      </button>
     </section>
 
-    <p v-if="error" class="state error">{{ error }}</p>
-    <p v-if="loading" class="state">Cargando reportes...</p>
+    <p v-if="error" class="state error" role="alert">{{ error }}</p>
+    <p v-if="loading" class="state" role="status">Cargando reportes...</p>
 
     <main class="report-grid">
       <section class="panel">

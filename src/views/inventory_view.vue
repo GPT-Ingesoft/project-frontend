@@ -1,8 +1,6 @@
 <script setup>
 import { computed, onMounted, ref } from 'vue';
-import { RouterLink } from 'vue-router';
 import { getErrorMessage } from '../services/error_service';
-import LogoutButton from '../components/logout_button.vue';
 import { inventoryService } from '../services/inventory_service';
 
 const loading = ref(true);
@@ -15,7 +13,7 @@ const schedules = ref([]);
 const selectedEquipment = ref(null);
 const equipmentHistory = ref(null);
 const availabilityResult = ref('');
-const filters = ref({ laboratory: '', status: '', criticality: '' });
+const filters = ref({ search: '', laboratory: '', status: '', criticality: '' });
 
 const equipmentForm = ref({
   name: '',
@@ -63,17 +61,52 @@ const criticalityForm = ref({
   criticality: 'media',
 });
 
+const labEditForm = ref({
+  id: '',
+  name: '',
+  location: '',
+  description: '',
+});
+
+const scheduleEditForm = ref({
+  id: '',
+  laboratorio: '',
+  dia: 'lunes',
+  hora_inicio: '08:00',
+  hora_fin: '10:00',
+  disponible: true,
+});
+
 const laboratoryOptions = computed(() => {
   return laboratories.value
     .map((item) => item.name || item.nombre)
     .filter(Boolean);
 });
 const filteredEquipment = computed(() => {
+  const search = filters.value.search.trim().toLowerCase();
   return equipment.value.filter((item) => {
     const location = item.location || item.ubicacion || '';
     const status = item.status || item.estado || '';
     const criticality = item.criticality || item.criticidad || '';
-    return (!filters.value.laboratory || location === filters.value.laboratory)
+    const searchable = [
+      item.name,
+      item.nombre,
+      item.inventory_code,
+      item.codigo_inventario,
+      item.codigo,
+      item.serial_number,
+      item.numero_serie,
+      item.brand,
+      item.marca,
+      item.model,
+      item.modelo,
+      location,
+      status,
+      criticality,
+    ].filter(Boolean).join(' ').toLowerCase();
+
+    return (!search || searchable.includes(search))
+      && (!filters.value.laboratory || location === filters.value.laboratory)
       && (!filters.value.status || status === filters.value.status)
       && (!filters.value.criticality || criticality === filters.value.criticality);
   });
@@ -92,6 +125,14 @@ const normalizeLaboratories = (payload) => {
   if (Array.isArray(payload)) return payload;
   if (Array.isArray(payload?.laboratorios)) return payload.laboratorios;
   if (Array.isArray(payload?.laboratories)) return payload.laboratories;
+  if (Array.isArray(payload?.results)) return payload.results;
+  return [];
+};
+
+const normalizeSchedules = (payload) => {
+  if (Array.isArray(payload)) return payload;
+  if (Array.isArray(payload?.horarios)) return payload.horarios;
+  if (Array.isArray(payload?.schedules)) return payload.schedules;
   if (Array.isArray(payload?.results)) return payload.results;
   return [];
 };
@@ -127,18 +168,39 @@ const resetScheduleForm = () => {
   };
 };
 
+const clearLabEdit = () => {
+  labEditForm.value = {
+    id: '',
+    name: '',
+    location: '',
+    description: '',
+  };
+};
+
+const clearScheduleEdit = () => {
+  scheduleEditForm.value = {
+    id: '',
+    laboratorio: '',
+    dia: 'lunes',
+    hora_inicio: '08:00',
+    hora_fin: '10:00',
+    disponible: true,
+  };
+};
+
 const loadInventory = async () => {
   loading.value = true;
   error.value = '';
 
   try {
-    const [equipmentResponse, labsResponse] = await Promise.all([
+    const [equipmentResponse, labsResponse, scheduleResponse] = await Promise.all([
       inventoryService.listEquipment(),
       inventoryService.listLaboratories(),
+      inventoryService.listSchedules(),
     ]);
     equipment.value = normalizeEquipment(equipmentResponse);
     laboratories.value = normalizeLaboratories(labsResponse);
-    schedules.value = inventoryService.getLocalSchedules();
+    schedules.value = normalizeSchedules(scheduleResponse);
     if (!scheduleForm.value.laboratorio) resetScheduleForm();
   } catch (err) {
     error.value = getErrorMessage(err);
@@ -152,7 +214,7 @@ const validateEquipmentForm = (form, requireSerial = true) => {
   if (!form.inventory_code.trim()) throw new Error('El código de inventario es obligatorio.');
   if (!form.brand.trim()) throw new Error('La marca es obligatoria.');
   if (!form.model.trim()) throw new Error('El modelo es obligatorio.');
-  if (requireSerial && !form.serial_number.trim()) throw new Error('El numero de serie es obligatorio.');
+  if (requireSerial && !form.serial_number.trim()) throw new Error('El número de serie es obligatorio.');
   if (!form.location.trim()) throw new Error('Debe seleccionar un laboratorio.');
 };
 
@@ -205,6 +267,57 @@ const createLaboratory = async () => {
   }
 };
 
+const startLabEdit = (lab) => {
+  labEditForm.value = {
+    id: lab.id,
+    name: lab.name || lab.nombre || '',
+    location: lab.location || lab.ubicacion || '',
+    description: lab.description || lab.descripcion || '',
+  };
+};
+
+const updateLaboratory = async () => {
+  saving.value = true;
+  message.value = '';
+  error.value = '';
+
+  try {
+    if (!labEditForm.value.id) throw new Error('Debe seleccionar un laboratorio.');
+    if (!labEditForm.value.name.trim()) throw new Error('El nombre del laboratorio es obligatorio.');
+    await inventoryService.updateLaboratory(labEditForm.value.id, {
+      name: labEditForm.value.name.trim(),
+      location: labEditForm.value.location.trim(),
+      description: labEditForm.value.description.trim(),
+    });
+    message.value = 'Laboratorio actualizado correctamente.';
+    clearLabEdit();
+    await loadInventory();
+  } catch (err) {
+    error.value = getErrorMessage(err);
+  } finally {
+    saving.value = false;
+  }
+};
+
+const deleteLaboratory = async (lab) => {
+  if (!window.confirm(`¿Eliminar ${lab.name || lab.nombre || 'este laboratorio'}?`)) return;
+
+  saving.value = true;
+  message.value = '';
+  error.value = '';
+
+  try {
+    await inventoryService.deleteLaboratory(lab.id);
+    message.value = 'Laboratorio eliminado correctamente.';
+    if (Number(labEditForm.value.id) === Number(lab.id)) clearLabEdit();
+    await loadInventory();
+  } catch (err) {
+    error.value = getErrorMessage(err);
+  } finally {
+    saving.value = false;
+  }
+};
+
 const createSchedule = async () => {
   saving.value = true;
   message.value = '';
@@ -217,6 +330,66 @@ const createSchedule = async () => {
     await inventoryService.createSchedule({ ...scheduleForm.value });
     message.value = 'Horario agregado correctamente.';
     resetScheduleForm();
+    await loadInventory();
+  } catch (err) {
+    error.value = getErrorMessage(err);
+  } finally {
+    saving.value = false;
+  }
+};
+
+const startScheduleEdit = (schedule) => {
+  scheduleEditForm.value = {
+    id: schedule.id,
+    laboratorio: schedule.laboratorio || schedule.laboratory || '',
+    dia: schedule.dia || schedule.day || 'lunes',
+    hora_inicio: schedule.hora_inicio || schedule.start_time || '08:00',
+    hora_fin: schedule.hora_fin || schedule.end_time || '10:00',
+    disponible: schedule.disponible !== false && schedule.available !== false,
+  };
+};
+
+const updateSchedule = async () => {
+  saving.value = true;
+  message.value = '';
+  error.value = '';
+
+  try {
+    if (!scheduleEditForm.value.id) throw new Error('Debe seleccionar un horario.');
+    if (!scheduleEditForm.value.laboratorio) throw new Error('Debe seleccionar un laboratorio.');
+    if (scheduleEditForm.value.hora_inicio >= scheduleEditForm.value.hora_fin) {
+      throw new Error('La hora fin debe ser posterior a la hora inicio.');
+    }
+    const selectedLab = laboratories.value.find((item) => (item.name || item.nombre) === scheduleEditForm.value.laboratorio);
+    await inventoryService.updateSchedule(scheduleEditForm.value.id, {
+      laboratory_id: selectedLab?.id,
+      laboratorio: scheduleEditForm.value.laboratorio,
+      dia: scheduleEditForm.value.dia,
+      hora_inicio: scheduleEditForm.value.hora_inicio,
+      hora_fin: scheduleEditForm.value.hora_fin,
+      disponible: scheduleEditForm.value.disponible,
+    });
+    message.value = 'Horario actualizado correctamente.';
+    clearScheduleEdit();
+    await loadInventory();
+  } catch (err) {
+    error.value = getErrorMessage(err);
+  } finally {
+    saving.value = false;
+  }
+};
+
+const deleteSchedule = async (schedule) => {
+  if (!window.confirm('¿Eliminar este horario?')) return;
+
+  saving.value = true;
+  message.value = '';
+  error.value = '';
+
+  try {
+    await inventoryService.deleteSchedule(schedule.id);
+    message.value = 'Horario eliminado correctamente.';
+    if (Number(scheduleEditForm.value.id) === Number(schedule.id)) clearScheduleEdit();
     await loadInventory();
   } catch (err) {
     error.value = getErrorMessage(err);
@@ -346,19 +519,12 @@ onMounted(loadInventory);
         <h1>Inventario</h1>
         <p>Gestiona laboratorios, horarios y equipos disponibles para solicitudes.</p>
       </div>
-      <div class="header-actions">
-        <RouterLink class="btn secondary" to="/">Panel</RouterLink>
-        <RouterLink class="btn secondary" to="/usuarios">Usuarios</RouterLink>
-        <RouterLink class="btn secondary" to="/reportes">Reportes</RouterLink>
-        <RouterLink class="btn secondary" to="/solicitudes">Solicitudes</RouterLink>
-        <LogoutButton />
-      </div>
     </header>
 
-    <p v-if="loading" class="state">Cargando inventario...</p>
-    <p v-if="error" class="state error">{{ error }}</p>
-    <p v-if="message" class="state success">{{ message }}</p>
-    <p v-if="availabilityResult" class="state success">{{ availabilityResult }}</p>
+    <p v-if="loading" class="state" role="status">Cargando inventario...</p>
+    <p v-if="error" class="state error" role="alert">{{ error }}</p>
+    <p v-if="message" class="state success" role="status">{{ message }}</p>
+    <p v-if="availabilityResult" class="state success" role="status">{{ availabilityResult }}</p>
 
     <main class="content-grid">
       <section class="panel">
@@ -396,14 +562,14 @@ onMounted(loadInventory);
           </label>
           <div class="nested-grid">
             <label>
-              Dia
+              Día
               <select v-model="scheduleForm.dia">
                 <option value="lunes">Lunes</option>
                 <option value="martes">Martes</option>
-                <option value="miercoles">Miercoles</option>
+                <option value="miercoles">Miércoles</option>
                 <option value="jueves">Jueves</option>
                 <option value="viernes">Viernes</option>
-                <option value="sabado">Sabado</option>
+                <option value="sabado">Sábado</option>
               </select>
             </label>
             <label>
@@ -432,7 +598,7 @@ onMounted(loadInventory);
               <input v-model="equipmentForm.name" type="text" placeholder="Ej. Multimetro digital" />
             </label>
             <label>
-              Codigo inventario
+              Código inventario
               <input v-model="equipmentForm.inventory_code" type="text" placeholder="Ej. EQ-045" />
             </label>
             <label>
@@ -469,7 +635,7 @@ onMounted(loadInventory);
               <input v-model="equipmentForm.model" type="text" />
             </label>
             <label>
-              Numero de serie
+              Número de serie
               <input v-model="equipmentForm.serial_number" type="text" />
             </label>
           </div>
@@ -489,7 +655,7 @@ onMounted(loadInventory);
             <input v-model="editForm.name" type="text" />
           </label>
           <label>
-            Codigo inventario
+            Código inventario
             <input v-model="editForm.inventory_code" type="text" />
           </label>
           <label>
@@ -573,6 +739,27 @@ onMounted(loadInventory);
 
     <section class="panel list-panel">
       <h2>Laboratorios registrados</h2>
+      <form v-if="labEditForm.id" class="form edit-strip" @submit.prevent="updateLaboratory">
+        <h3>Editar laboratorio</h3>
+        <div class="nested-grid">
+          <label>
+            Nombre
+            <input v-model="labEditForm.name" type="text" />
+          </label>
+          <label>
+            Ubicación
+            <input v-model="labEditForm.location" type="text" />
+          </label>
+          <label>
+            Descripción
+            <input v-model="labEditForm.description" type="text" />
+          </label>
+        </div>
+        <div class="actions">
+          <button class="btn" type="submit" :disabled="saving">Guardar laboratorio</button>
+          <button class="btn secondary" type="button" :disabled="saving" @click="clearLabEdit">Cancelar</button>
+        </div>
+      </form>
       <p v-if="laboratories.length === 0" class="state">No hay laboratorios registrados.</p>
       <div v-else class="table-wrap">
         <table>
@@ -581,13 +768,18 @@ onMounted(loadInventory);
               <th>Nombre</th>
               <th>Ubicación</th>
               <th>Descripción</th>
+              <th>Acciones</th>
             </tr>
           </thead>
           <tbody>
             <tr v-for="lab in laboratories" :key="lab.id || lab.name || lab.nombre">
               <td>{{ lab.name || lab.nombre || 'Sin nombre' }}</td>
-              <td>{{ lab.location || lab.ubicacion || 'Sin ubicacion' }}</td>
-              <td>{{ lab.description || lab.descripcion || 'Sin descripcion' }}</td>
+              <td>{{ lab.location || lab.ubicacion || 'Sin ubicación' }}</td>
+              <td>{{ lab.description || lab.descripcion || 'Sin descripción' }}</td>
+              <td class="actions">
+                <button class="btn small" type="button" :disabled="saving" @click="startLabEdit(lab)">Editar</button>
+                <button class="btn small danger" type="button" :disabled="saving" @click="deleteLaboratory(lab)">Eliminar</button>
+              </td>
             </tr>
           </tbody>
         </table>
@@ -596,25 +788,70 @@ onMounted(loadInventory);
 
     <section class="panel list-panel">
       <h2>Horarios registrados</h2>
-      <p v-if="schedules.length === 0" class="state">No hay horarios locales registrados.</p>
+      <form v-if="scheduleEditForm.id" class="form edit-strip" @submit.prevent="updateSchedule">
+        <h3>Editar horario</h3>
+        <div class="nested-grid">
+          <label>
+            Laboratorio
+            <select v-model="scheduleEditForm.laboratorio">
+              <option v-for="laboratory in laboratoryOptions" :key="laboratory" :value="laboratory">
+                {{ laboratory }}
+              </option>
+            </select>
+          </label>
+          <label>
+            Día
+            <select v-model="scheduleEditForm.dia">
+              <option value="lunes">Lunes</option>
+              <option value="martes">Martes</option>
+              <option value="miercoles">Miércoles</option>
+              <option value="jueves">Jueves</option>
+              <option value="viernes">Viernes</option>
+              <option value="sabado">Sábado</option>
+            </select>
+          </label>
+          <label>
+            Hora inicio
+            <input v-model="scheduleEditForm.hora_inicio" type="time" />
+          </label>
+          <label>
+            Hora fin
+            <input v-model="scheduleEditForm.hora_fin" type="time" />
+          </label>
+          <label class="check-row">
+            <input v-model="scheduleEditForm.disponible" type="checkbox" />
+            Disponible
+          </label>
+        </div>
+        <div class="actions">
+          <button class="btn" type="submit" :disabled="saving">Guardar horario</button>
+          <button class="btn secondary" type="button" :disabled="saving" @click="clearScheduleEdit">Cancelar</button>
+        </div>
+      </form>
+      <p v-if="schedules.length === 0" class="state">No hay horarios registrados.</p>
       <div v-else class="table-wrap">
         <table>
           <thead>
             <tr>
               <th>Laboratorio</th>
-              <th>Dia</th>
+              <th>Día</th>
               <th>Inicio</th>
               <th>Fin</th>
               <th>Disponible</th>
+              <th>Acciones</th>
             </tr>
           </thead>
           <tbody>
             <tr v-for="schedule in schedules" :key="schedule.id">
-              <td>{{ schedule.laboratorio }}</td>
-              <td>{{ schedule.dia }}</td>
-              <td>{{ schedule.hora_inicio }}</td>
-              <td>{{ schedule.hora_fin }}</td>
-              <td>{{ schedule.disponible ? 'Si' : 'No' }}</td>
+              <td>{{ schedule.laboratorio || schedule.laboratory }}</td>
+              <td>{{ schedule.dia || schedule.day_display || schedule.day }}</td>
+              <td>{{ schedule.hora_inicio || schedule.start_time }}</td>
+              <td>{{ schedule.hora_fin || schedule.end_time }}</td>
+              <td>{{ schedule.disponible !== false && schedule.available !== false ? 'Si' : 'No' }}</td>
+              <td class="actions">
+                <button class="btn small" type="button" :disabled="saving" @click="startScheduleEdit(schedule)">Editar</button>
+                <button class="btn small danger" type="button" :disabled="saving" @click="deleteSchedule(schedule)">Eliminar</button>
+              </td>
             </tr>
           </tbody>
         </table>
@@ -624,6 +861,10 @@ onMounted(loadInventory);
     <section class="panel list-panel">
       <h2>Equipos registrados</h2>
       <div class="filters">
+        <label>
+          Buscar
+          <input v-model="filters.search" type="search" placeholder="Nombre, código, serial, marca..." />
+        </label>
         <label>
           Laboratorio
           <select v-model="filters.laboratory">
@@ -659,7 +900,7 @@ onMounted(loadInventory);
           <thead>
             <tr>
               <th>Nombre</th>
-              <th>Codigo</th>
+              <th>Código</th>
               <th>Laboratorio</th>
               <th>Estado</th>
               <th>Criticidad</th>
@@ -755,6 +996,14 @@ p {
 
 .management-grid {
   margin-top: 18px;
+}
+
+.edit-strip {
+  margin: 16px 0;
+  padding: 16px;
+  border: 1px solid #edf0f2;
+  border-radius: 8px;
+  background: #f8fafc;
 }
 
 label {
