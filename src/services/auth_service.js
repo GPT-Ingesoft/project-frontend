@@ -1,4 +1,5 @@
 import axios from "axios";
+import { reactive } from 'vue';
 
 const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000/api';
 const api = axios.create({ baseURL: API_URL });
@@ -14,12 +15,12 @@ export const demoUser = {
 
 export const isDemoMode = () => localStorage.getItem('syslab_demo') === 'true';
 
-export const authState = {
+export const authState = reactive({
   user: JSON.parse(localStorage.getItem('user')) || (isDemoMode() ? demoUser : null),
   accessToken: localStorage.getItem('access_token'),
   refreshToken: localStorage.getItem('refresh_token'),
   isAuthenticated: !!localStorage.getItem('access_token') || isDemoMode(),
-};
+});
 
 export const getUserRole = () => authState.user?.role || authState.user?.rol || '';
 
@@ -36,8 +37,12 @@ export const permissions = {
   canManageInventory: () => getUserRole() === 'laboratorista',
   canViewReports: () => getUserRole() === 'laboratorista',
   canManageRequests: () => getUserRole() === 'laboratorista',
+  canAssignTechnicians: () => getUserRole() === 'laboratorista',
+  canApproveRequests: () => getUserRole() === 'laboratorista',
   canUploadAttachments: () => ['laboratorista', 'tecnico'].includes(getUserRole()),
   canCreateRequests: () => ['laboratorista', 'docente'].includes(getUserRole()),
+  canChangeRequestStatus: () => ['laboratorista', 'tecnico', 'docente'].includes(getUserRole()),
+  canRegisterInterventions: () => ['laboratorista', 'tecnico'].includes(getUserRole()),
 };
 
 export const authService = {

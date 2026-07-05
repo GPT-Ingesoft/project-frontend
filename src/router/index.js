@@ -55,6 +55,12 @@ const routes = [
     name: 'Reports',
     component: () => import('../views/reports_view.vue'),
     meta: { requiresAuth: true, roles: ['laboratorista'] }
+  },
+  {
+    path: '/sin-permisos',
+    name: 'Forbidden',
+    component: () => import('../views/forbidden_view.vue'),
+    meta: { requiresAuth: true }
   }
 ];
 
@@ -73,7 +79,7 @@ router.beforeEach((to, from, next) => {
 
   const allowedRoles = to.meta.roles || [];
   if (allowedRoles.length && !hasRole(allowedRoles)) {
-    return next({ name: 'Home' });
+    return next({ name: 'Forbidden' });
   }
 
   if (to.name === 'Login' && isAuthenticated) {

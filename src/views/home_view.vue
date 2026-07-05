@@ -1,19 +1,17 @@
 <script setup>
 import { computed, onMounted, ref } from 'vue';
 import { RouterLink } from 'vue-router';
-import LogoutButton from '../components/logout_button.vue';
-import { authState, authService, permissions } from '../services/auth_service';
+import { authState, authService } from '../services/auth_service';
 import { dashboardService } from '../services/dashboard_service';
 
 const loading = ref(true);
 const error = ref('');
 const equipment = ref([]);
+const maintenanceEquipment = ref([]);
+const decommissionedEquipment = ref([]);
 const requestDashboard = ref(null);
 
 const isLabTechnician = computed(() => authState.user?.role === 'laboratorista');
-const canManageInventory = computed(() => permissions.canManageInventory());
-const canManageUsers = computed(() => permissions.canManageUsers());
-const canViewReports = computed(() => permissions.canViewReports());
 const dashboardRequests = computed(() => requestDashboard.value?.solicitudes || requestDashboard.value?.solicitudes_activas || []);
 
 const getErrorMessage = (err) => {
@@ -35,8 +33,14 @@ onMounted(async () => {
     const user = await authService.getMe();
     if (!user) throw new Error('No fue posible cargar el usuario autenticado.');
 
-    const activeEquipment = await dashboardService.getActiveEquipment();
+    const [activeEquipment, maintenanceResponse, decommissionedResponse] = await Promise.all([
+      dashboardService.getActiveEquipment(),
+      dashboardService.getMaintenanceEquipment(),
+      dashboardService.getDecommissionedEquipment(),
+    ]);
     equipment.value = normalizeEquipment(activeEquipment);
+    maintenanceEquipment.value = normalizeEquipment(maintenanceResponse);
+    decommissionedEquipment.value = normalizeEquipment(decommissionedResponse);
 
     if (user.role === 'laboratorista') {
       requestDashboard.value = await dashboardService.getRequestDashboard();
@@ -58,24 +62,25 @@ onMounted(async () => {
           {{ authState.user.name }} - {{ authState.user.role }} - {{ authState.user.email }}
         </p>
       </div>
-      <div class="header-actions">
-        <RouterLink v-if="canManageInventory" class="action-link secondary-link" to="/inventario">Inventario</RouterLink>
-        <RouterLink v-if="canManageUsers" class="action-link secondary-link" to="/usuarios">Usuarios</RouterLink>
-        <RouterLink v-if="canViewReports" class="action-link secondary-link" to="/reportes">Reportes</RouterLink>
-        <RouterLink class="action-link" to="/solicitudes">Solicitudes</RouterLink>
-        <LogoutButton />
-      </div>
     </header>
 
     <main class="dashboard-content">
-      <p v-if="loading" class="state-message">Cargando dashboard...</p>
-      <p v-else-if="error" class="state-message error">{{ error }}</p>
+      <p v-if="loading" class="state-message" role="status">Cargando dashboard...</p>
+      <p v-else-if="error" class="state-message error" role="alert">{{ error }}</p>
 
       <template v-else>
         <section class="summary-grid">
           <article class="summary-card">
             <span class="summary-label">Equipos activos</span>
             <strong>{{ equipment.length }}</strong>
+          </article>
+          <article class="summary-card">
+            <span class="summary-label">En mantenimiento</span>
+            <strong>{{ maintenanceEquipment.length }}</strong>
+          </article>
+          <article class="summary-card">
+            <span class="summary-label">Dados de baja</span>
+            <strong>{{ decommissionedEquipment.length }}</strong>
           </article>
           <article v-if="isLabTechnician" class="summary-card">
             <span class="summary-label">Solicitudes pendientes</span>
@@ -106,7 +111,7 @@ onMounted(async () => {
               <tbody>
                 <tr v-for="item in equipment" :key="item.id || item.inventory_code">
                   <td>{{ item.name || item.nombre || 'Sin nombre' }}</td>
-                  <td>{{ item.location || item.ubicacion || 'Sin ubicacion' }}</td>
+                  <td>{{ item.location || item.ubicacion || 'Sin ubicación' }}</td>
                   <td>{{ item.status || item.estado || 'Sin estado' }}</td>
                   <td>{{ item.criticality || item.criticidad || 'Sin criticidad' }}</td>
                 </tr>
@@ -132,7 +137,7 @@ onMounted(async () => {
                   <th>Estado</th>
                   <th>Prioridad</th>
                   <th>Descripción</th>
-                  <th>Accion</th>
+                  <th>Acción</th>
                 </tr>
               </thead>
               <tbody>

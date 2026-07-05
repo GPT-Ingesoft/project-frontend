@@ -19,7 +19,7 @@ const initialDemoRequests = [
     id: 12,
     estado: 'pendiente',
     prioridad: 'alta',
-    descripcion: 'El microscopio no enciende y requiere revision tecnica.',
+    descripcion: 'El microscopio no enciende y requiere revisión técnica.',
     usuario: 'Ana Torres',
     created_at: '2026-06-29T10:30:00',
     equipo: demoEquipment,
@@ -33,6 +33,7 @@ const initialDemoRequests = [
     tecnicos_asignados: [],
     adjuntos: [],
     historial_estados: [],
+    intervenciones: [],
   },
   {
     id: 13,
@@ -54,6 +55,7 @@ const initialDemoRequests = [
     tecnicos_asignados: [{ id: 8, name: 'Carlos Ruiz', email: 'cruiz@unal.edu.co' }],
     adjuntos: [],
     historial_estados: [],
+    intervenciones: [],
   },
 ];
 
@@ -64,6 +66,8 @@ const demoTechnicians = [
     email: 'cruiz@unal.edu.co',
     specialty: 'Electronica',
     contact: '3101234567',
+    active_requests: 1,
+    available: true,
   },
   {
     id: 11,
@@ -71,6 +75,8 @@ const demoTechnicians = [
     email: 'lgomez@unal.edu.co',
     specialty: 'Equipos de laboratorio',
     contact: '3107654321',
+    active_requests: 0,
+    available: true,
   },
 ];
 
@@ -134,7 +140,14 @@ const normalizeScheduleResponse = (payload, laboratorio = '') => {
   return {
     ...(Array.isArray(payload) ? {} : payload),
     laboratorio: payload?.laboratorio || laboratorio,
-    horarios: schedules,
+    horarios: schedules.map((item) => ({
+      ...item,
+      laboratorio: item.laboratorio || item.laboratory || laboratorio,
+      dia: item.dia || item.day_display || item.day || '',
+      hora_inicio: item.hora_inicio || item.start_time || '',
+      hora_fin: item.hora_fin || item.end_time || '',
+      disponible: item.disponible !== undefined ? item.disponible : item.available !== false,
+    })),
   };
 };
 
@@ -144,7 +157,7 @@ export const requestService = {
       return { solicitudes: readDemoRequests() };
     }
 
-    const res = await api.get('/panel/solicitudes/');
+    const res = await api.get('/solicitudes/');
     return normalizeRequestsResponse(res.data);
   },
 
@@ -171,6 +184,7 @@ export const requestService = {
         tecnicos_asignados: [],
         adjuntos: [],
         historial_estados: [],
+        intervenciones: [],
       };
 
       saveDemoRequest(solicitud);
@@ -211,23 +225,24 @@ export const requestService = {
       };
     }
 
-    const params = laboratorio ? { laboratorio } : {};
-    const localSchedules = laboratorio ? inventoryService.getLocalSchedules(laboratorio) : [];
-
-    let apiResponse;
-    try {
-      const res = await api.get('/solicitudes/horario/', { params });
-      if (!laboratorio) return res.data;
-      apiResponse = normalizeScheduleResponse(res.data, laboratorio);
-    } catch (err) {
-      if (!laboratorio || localSchedules.length === 0) throw err;
-      apiResponse = { laboratorio, horarios: [] };
+    if (!laboratorio) {
+      const labs = await inventoryService.listLaboratories();
+      return {
+        laboratorios: (labs.laboratorios || labs.laboratories || [])
+          .map((item) => item.name || item.nombre || item)
+          .filter(Boolean),
+      };
     }
 
-    return {
-      ...apiResponse,
-      horarios: inventoryService.mergeSchedules(apiResponse.horarios, localSchedules),
-    };
+    const schedules = await inventoryService.listSchedules();
+    return normalizeScheduleResponse(
+      {
+        laboratorio,
+        horarios: (schedules.horarios || schedules.schedules || [])
+          .filter((item) => (item.laboratorio || item.laboratory) === laboratorio),
+      },
+      laboratorio,
+    );
   },
 
   async getAvailableTechnicians(solicitudId) {
@@ -309,6 +324,33 @@ export const requestService = {
     const res = await api.patch(`/solicitudes/${solicitudId}/tecnicos/`, {
       technician_ids: technicianIds,
     });
+    return res.data;
+  },
+
+  async createIntervention(solicitudId, data) {
+    if (isDemoMode()) {
+      const { request } = findDemoRequest(solicitudId);
+      const intervention = {
+        id: Date.now(),
+        descripcion: data.descripcion,
+        diagnostico: data.diagnostico,
+        acciones_realizadas: data.acciones_realizadas,
+        repuestos: data.repuestos,
+        observaciones: data.observaciones,
+        tiempo_invertido_horas: data.tiempo_invertido_horas,
+        tecnico: 'Usuario Demo',
+        created_at: new Date().toISOString(),
+      };
+      const updated = {
+        ...request,
+        intervenciones: [...(request.intervenciones || []), intervention],
+      };
+      saveDemoRequest(updated);
+
+      return { message: 'Intervención registrada correctamente.', intervention };
+    }
+
+    const res = await api.post(`/solicitudes/${solicitudId}/intervenciones/`, data);
     return res.data;
   },
 

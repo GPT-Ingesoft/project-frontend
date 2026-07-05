@@ -3,8 +3,6 @@ import { isDemoMode } from './auth_service';
 
 const DEMO_EQUIPMENT_KEY = 'syslab_demo_equipment';
 const DEMO_LABS_KEY = 'syslab_demo_laboratories';
-const LOCAL_LABS_KEY = 'syslab_local_laboratories';
-const LOCAL_SCHEDULES_KEY = 'syslab_local_schedules';
 const DEMO_SCHEDULES_KEY = 'syslab_demo_schedules';
 const DEMO_NEXT_EQUIPMENT_ID_KEY = 'syslab_demo_next_equipment_id';
 const DEMO_NEXT_LAB_ID_KEY = 'syslab_demo_next_lab_id';
@@ -53,9 +51,9 @@ const initialDemoLaboratories = [
 ];
 
 const initialDemoSchedules = [
-  { id: 4, laboratorio: 'Laboratorio 101', dia: 'lunes', hora_inicio: '08:00', hora_fin: '10:00', disponible: true },
-  { id: 5, laboratorio: 'Laboratorio 101', dia: 'miercoles', hora_inicio: '14:00', hora_fin: '16:00', disponible: true },
-  { id: 6, laboratorio: 'Sala de Sistemas', dia: 'martes', hora_inicio: '09:00', hora_fin: '11:00', disponible: true },
+  { id: 4, laboratory: 'Laboratorio 101', laboratory_id: 1, day: 'lunes', day_display: 'Lunes', start_time: '08:00', end_time: '10:00', available: true },
+  { id: 5, laboratory: 'Laboratorio 101', laboratory_id: 1, day: 'miercoles', day_display: 'Miercoles', start_time: '14:00', end_time: '16:00', available: true },
+  { id: 6, laboratory: 'Sala de Sistemas', laboratory_id: 2, day: 'martes', day_display: 'Martes', start_time: '09:00', end_time: '11:00', available: true },
 ];
 
 const clone = (value) => JSON.parse(JSON.stringify(value));
@@ -104,34 +102,38 @@ const normalizeLaboratoryItem = (item) => {
   return item;
 };
 
-const readLocalLaboratories = () => {
-  const stored = localStorage.getItem(LOCAL_LABS_KEY);
-  return stored ? JSON.parse(stored) : [];
+const normalizeScheduleItem = (item) => ({
+  ...item,
+  laboratorio: item.laboratorio || item.laboratory || '',
+  laboratory: item.laboratory || item.laboratorio || '',
+  laboratory_id: item.laboratory_id || item.laboratorio_id || null,
+  dia: item.dia || item.day_display || item.day || '',
+  day: item.day || item.dia || '',
+  hora_inicio: item.hora_inicio || item.start_time || '',
+  start_time: item.start_time || item.hora_inicio || '',
+  hora_fin: item.hora_fin || item.end_time || '',
+  end_time: item.end_time || item.hora_fin || '',
+  disponible: item.disponible !== undefined ? item.disponible : item.available !== false,
+  available: item.available !== undefined ? item.available : item.disponible !== false,
+});
+
+const normalizeSchedulesResponse = (payload) => {
+  const schedules = Array.isArray(payload)
+    ? payload
+    : payload?.horarios || payload?.schedules || payload?.results || [];
+  return {
+    ...(Array.isArray(payload) ? {} : payload),
+    horarios: schedules.map(normalizeScheduleItem),
+  };
 };
 
-const writeLocalLaboratories = (items) => {
-  localStorage.setItem(LOCAL_LABS_KEY, JSON.stringify(items));
-};
-
-const readLocalSchedules = (key = LOCAL_SCHEDULES_KEY) => {
+const readDemoSchedules = (key = DEMO_SCHEDULES_KEY) => {
   const stored = localStorage.getItem(key);
   return stored ? JSON.parse(stored) : [];
 };
 
-const writeLocalSchedules = (items, key = LOCAL_SCHEDULES_KEY) => {
+const writeDemoSchedules = (items, key = DEMO_SCHEDULES_KEY) => {
   localStorage.setItem(key, JSON.stringify(items));
-};
-
-const mergeLaboratories = (apiLaboratories, localLaboratories) => {
-  const seen = new Set();
-  return [...apiLaboratories, ...localLaboratories]
-    .map(normalizeLaboratoryItem)
-    .filter((item) => {
-      const name = item.name || item.nombre;
-      if (!name || seen.has(name)) return false;
-      seen.add(name);
-      return true;
-    });
 };
 
 export const inventoryService = {
@@ -148,14 +150,14 @@ export const inventoryService = {
   },
 
   getLocalSchedules(laboratorio = '') {
-    const schedules = isDemoMode() ? this.getDemoSchedules() : readLocalSchedules();
+    const schedules = this.getDemoSchedules().map(normalizeScheduleItem);
     if (!laboratorio) return schedules;
-    return schedules.filter((item) => item.laboratorio === laboratorio);
+    return schedules.filter((item) => item.laboratorio === laboratorio || item.laboratory === laboratorio);
   },
 
   mergeSchedules(apiSchedules = [], localSchedules = []) {
     const seen = new Set();
-    return [...apiSchedules, ...localSchedules].filter((item) => {
+    return [...apiSchedules, ...localSchedules].map(normalizeScheduleItem).filter((item) => {
       const key = item.id || `${item.laboratorio}-${item.dia}-${item.hora_inicio}-${item.hora_fin}`;
       if (seen.has(key)) return false;
       seen.add(key);
@@ -266,20 +268,8 @@ export const inventoryService = {
       return { laboratorios: this.getDemoLaboratories() };
     }
 
-    let apiResponse;
-    try {
-      const res = await api.get('/solicitudes/horario/');
-      apiResponse = normalizeLaboratoriesResponse(res.data);
-    } catch (err) {
-      const localLaboratories = readLocalLaboratories();
-      if (localLaboratories.length === 0) throw err;
-      apiResponse = { laboratorios: [] };
-    }
-
-    return {
-      ...apiResponse,
-      laboratorios: mergeLaboratories(apiResponse.laboratorios, readLocalLaboratories()),
-    };
+    const res = await api.get('/laboratories/');
+    return normalizeLaboratoriesResponse(res.data);
   },
 
   async createLaboratory(data) {
@@ -297,35 +287,116 @@ export const inventoryService = {
       return { message: 'Laboratorio creado correctamente.', laboratorio };
     }
 
-    const laboratorios = readLocalLaboratories();
-    const laboratorio = {
-      id: `local-${Date.now()}`,
+    const res = await api.post('/laboratories/', {
       name: data.name,
       location: data.location,
       description: data.description,
-    };
+      active: data.active !== false,
+    });
+    return res.data;
+  },
 
-    laboratorios.push(laboratorio);
-    writeLocalLaboratories(laboratorios);
-    return { message: 'Laboratorio agregado localmente.', laboratorio };
+  async updateLaboratory(laboratoryId, data) {
+    if (isDemoMode()) {
+      const laboratorios = this.getDemoLaboratories();
+      const index = laboratorios.findIndex((item) => Number(item.id) === Number(laboratoryId));
+      if (index === -1) throw new Error('Laboratorio demo no encontrado.');
+      laboratorios[index] = { ...laboratorios[index], ...data };
+      writeCollection(DEMO_LABS_KEY, laboratorios);
+      return { message: 'Laboratorio actualizado correctamente.', laboratorio: laboratorios[index] };
+    }
+
+    const res = await api.patch(`/laboratories/${laboratoryId}/`, data);
+    return res.data;
+  },
+
+  async deleteLaboratory(laboratoryId) {
+    if (isDemoMode()) {
+      const laboratorios = this.getDemoLaboratories().filter((item) => Number(item.id) !== Number(laboratoryId));
+      writeCollection(DEMO_LABS_KEY, laboratorios);
+      return { message: 'Laboratorio eliminado correctamente.' };
+    }
+
+    const res = await api.delete(`/laboratories/${laboratoryId}/`);
+    return res.data;
+  },
+
+  async listSchedules(laboratoryId = '') {
+    if (isDemoMode()) {
+      const schedules = this.getDemoSchedules().map(normalizeScheduleItem);
+      return {
+        horarios: laboratoryId
+          ? schedules.filter((item) => Number(item.laboratory_id) === Number(laboratoryId))
+          : schedules,
+      };
+    }
+
+    const params = laboratoryId ? { laboratory_id: laboratoryId } : {};
+    const res = await api.get('/schedules/', { params });
+    return normalizeSchedulesResponse(res.data);
   },
 
   async createSchedule(data) {
-    const key = isDemoMode() ? DEMO_SCHEDULES_KEY : LOCAL_SCHEDULES_KEY;
-    const schedules = isDemoMode() ? this.getDemoSchedules() : readLocalSchedules();
-    const schedule = {
-      id: isDemoMode()
-        ? getNextId(DEMO_NEXT_SCHEDULE_ID_KEY, 7)
-        : `local-schedule-${Date.now()}`,
-      laboratorio: data.laboratorio,
-      dia: data.dia,
-      hora_inicio: data.hora_inicio,
-      hora_fin: data.hora_fin,
-      disponible: data.disponible !== false,
-    };
+    if (isDemoMode()) {
+      const schedules = this.getDemoSchedules();
+      const schedule = {
+        id: getNextId(DEMO_NEXT_SCHEDULE_ID_KEY, 7),
+        laboratory: data.laboratory || data.laboratorio,
+        laboratory_id: data.laboratory_id || null,
+        day: data.day || data.dia,
+        day_display: data.day_display || data.day || data.dia,
+        start_time: data.start_time || data.hora_inicio,
+        end_time: data.end_time || data.hora_fin,
+        available: data.available !== undefined ? data.available : data.disponible !== false,
+      };
 
-    schedules.push(schedule);
-    writeLocalSchedules(schedules, key);
-    return { message: 'Horario agregado correctamente.', horario: schedule };
+      schedules.push(schedule);
+      writeDemoSchedules(schedules);
+      return { message: 'Horario agregado correctamente.', horario: normalizeScheduleItem(schedule) };
+    }
+
+    const res = await api.post('/schedules/', {
+      laboratory_id: data.laboratory_id || undefined,
+      laboratory: data.laboratory || data.laboratorio || undefined,
+      day: data.day || data.dia,
+      start_time: data.start_time || data.hora_inicio,
+      end_time: data.end_time || data.hora_fin,
+      available: data.available !== undefined ? data.available : data.disponible !== false,
+    });
+    return res.data;
+  },
+
+  async updateSchedule(scheduleId, data) {
+    if (isDemoMode()) {
+      const schedules = this.getDemoSchedules();
+      const index = schedules.findIndex((item) => Number(item.id) === Number(scheduleId));
+      if (index === -1) throw new Error('Horario demo no encontrado.');
+      schedules[index] = {
+        ...schedules[index],
+        laboratory: data.laboratory || data.laboratorio || schedules[index].laboratory,
+        laboratory_id: data.laboratory_id || schedules[index].laboratory_id || null,
+        day: data.day || data.dia || schedules[index].day,
+        day_display: data.day_display || data.day || data.dia || schedules[index].day_display,
+        start_time: data.start_time || data.hora_inicio || schedules[index].start_time,
+        end_time: data.end_time || data.hora_fin || schedules[index].end_time,
+        available: data.available !== undefined ? data.available : data.disponible !== false,
+      };
+      writeDemoSchedules(schedules);
+      return { message: 'Horario actualizado correctamente.', horario: normalizeScheduleItem(schedules[index]) };
+    }
+
+    const res = await api.patch(`/schedules/${scheduleId}/`, data);
+    return res.data;
+  },
+
+  async deleteSchedule(scheduleId) {
+    if (isDemoMode()) {
+      const schedules = this.getDemoSchedules().filter((item) => Number(item.id) !== Number(scheduleId));
+      writeDemoSchedules(schedules);
+      return { message: 'Horario eliminado correctamente.' };
+    }
+
+    const res = await api.delete(`/schedules/${scheduleId}/`);
+    return res.data;
   },
 };

@@ -1,7 +1,5 @@
 <script setup>
 import { computed, onMounted, ref } from 'vue';
-import { RouterLink } from 'vue-router';
-import LogoutButton from '../components/logout_button.vue';
 import { authState } from '../services/auth_service';
 import { getErrorMessage } from '../services/error_service';
 import { userService } from '../services/user_service';
@@ -11,7 +9,7 @@ const saving = ref(false);
 const error = ref('');
 const message = ref('');
 const users = ref([]);
-const filters = ref({ role: '', status: '' });
+const filters = ref({ search: '', role: '', status: '' });
 
 const userForm = ref({
   name: '',
@@ -28,23 +26,41 @@ const profileForm = ref({
 
 const isTechnician = computed(() => userForm.value.role === 'tecnico');
 const filteredUsers = computed(() => {
+  const search = filters.value.search.trim().toLowerCase();
   return users.value.filter((user) => {
     const role = user.role || user.rol || '';
     const active = user.active !== false && user.activo !== false;
+    const searchable = [
+      user.name,
+      user.nombre,
+      user.email,
+      user.correo,
+      user.specialty,
+      user.especialidad,
+      user.contact,
+      user.contacto,
+      role,
+    ].filter(Boolean).join(' ').toLowerCase();
+    const matchesSearch = !search || searchable.includes(search);
     const matchesRole = !filters.value.role || role === filters.value.role;
     const matchesStatus = !filters.value.status
       || (filters.value.status === 'active' && active)
       || (filters.value.status === 'inactive' && !active);
-    return matchesRole && matchesStatus;
+    return matchesSearch && matchesRole && matchesStatus;
   });
 });
 
 const normalizeUsers = (payload) => {
-  if (Array.isArray(payload)) return payload;
-  if (Array.isArray(payload?.users)) return payload.users;
-  if (Array.isArray(payload?.usuarios)) return payload.usuarios;
-  if (Array.isArray(payload?.results)) return payload.results;
-  return [];
+  const list = Array.isArray(payload)
+    ? payload
+    : payload?.users || payload?.usuarios || payload?.results || [];
+  return list.map((user) => ({
+    ...user,
+    role: user.role || user.rol || 'docente',
+    active: user.active !== false && user.activo !== false,
+    specialty: user.specialty || user.especialidad || user.perfil_tecnico?.specialty || user.perfil_tecnico?.especialidad || '',
+    contact: user.contact || user.contacto || user.perfil_tecnico?.contact || user.perfil_tecnico?.contacto || '',
+  }));
 };
 
 const resetUserForm = () => {
@@ -117,7 +133,18 @@ const updateRole = async (user) => {
   message.value = '';
 
   try {
-    await userService.assignRole(user.id, user.role);
+    const role = user.role || user.rol;
+    if (role === 'tecnico' && !String(user.specialty || '').trim()) {
+      throw new Error('La especialidad es obligatoria para técnicos.');
+    }
+    if (role === 'tecnico' && !String(user.contact || '').trim()) {
+      throw new Error('El contacto es obligatorio para técnicos.');
+    }
+
+    await userService.assignRole(user.id, role, {
+      specialty: String(user.specialty || '').trim(),
+      contact: String(user.contact || '').trim(),
+    });
     message.value = 'Rol actualizado correctamente.';
     await loadUsers();
   } catch (err) {
@@ -186,17 +213,11 @@ onMounted(loadUsers);
         <h1>Usuarios</h1>
         <p>Gestiona cuentas, roles y estado de acceso.</p>
       </div>
-      <div class="header-actions">
-        <RouterLink class="btn secondary" to="/">Panel</RouterLink>
-        <RouterLink class="btn secondary" to="/inventario">Inventario</RouterLink>
-        <RouterLink class="btn secondary" to="/reportes">Reportes</RouterLink>
-        <LogoutButton />
-      </div>
     </header>
 
-    <p v-if="loading" class="state">Cargando usuarios...</p>
-    <p v-if="error" class="state error">{{ error }}</p>
-    <p v-if="message" class="state success">{{ message }}</p>
+    <p v-if="loading" class="state" role="status">Cargando usuarios...</p>
+    <p v-if="error" class="state error" role="alert">{{ error }}</p>
+    <p v-if="message" class="state success" role="status">{{ message }}</p>
 
     <main class="content-grid">
       <section class="panel">
@@ -256,6 +277,10 @@ onMounted(loadUsers);
       <h2>Usuarios registrados</h2>
       <div class="filters">
         <label>
+          Buscar
+          <input v-model="filters.search" type="search" placeholder="Nombre, correo, especialidad..." />
+        </label>
+        <label>
           Rol
           <select v-model="filters.role">
             <option value="">Todos</option>
@@ -299,9 +324,8 @@ onMounted(loadUsers);
               </td>
               <td>
                 <span v-if="(user.role || user.rol) === 'tecnico'">
-                  {{ user.specialty || user.especialidad || 'Sin especialidad' }}
-                  <br />
-                  {{ user.contact || user.contacto || 'Sin contacto' }}
+                  <input v-model="user.specialty" type="text" placeholder="Especialidad" :disabled="saving" />
+                  <input v-model="user.contact" type="text" placeholder="Contacto" :disabled="saving" />
                 </span>
                 <span v-else>No aplica</span>
               </td>

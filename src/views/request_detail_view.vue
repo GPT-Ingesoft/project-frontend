@@ -14,14 +14,74 @@ const detail = ref(null);
 const statusForm = ref({ estado: 'en_proceso', motivo: '' });
 const technicians = ref([]);
 const selectedTechnicians = ref([]);
+const interventionForm = ref({
+  descripcion: '',
+  diagnostico: '',
+  acciones_realizadas: '',
+  repuestos: '',
+  observaciones: '',
+  tiempo_invertido_horas: 1,
+});
 const attachment = ref({ file: null, descripcion: '', tipo: 'documento' });
 const fileInput = ref(null);
 
 const solicitud = computed(() => detail.value?.solicitud || detail.value || null);
 const isLabTechnician = computed(() => permissions.canManageRequests());
+const isTechnician = computed(() => permissions.isTechnician());
+const isTeacher = computed(() => permissions.isTeacher());
+const canAssignTechnicians = computed(() => permissions.canAssignTechnicians());
+const canApproveRequests = computed(() => permissions.canApproveRequests());
 const canUploadAttachments = computed(() => permissions.canUploadAttachments());
+const canChangeStatus = computed(() => permissions.canChangeRequestStatus());
+const canRegisterInterventions = computed(() => permissions.canRegisterInterventions());
 const requestEquipment = computed(() => solicitud.value?.equipo || solicitud.value?.datos_equipo_solicitado || null);
 const requestSchedule = computed(() => solicitud.value?.horario_agendado || null);
+const assignedTechnicians = computed(() => solicitud.value?.tecnicos_asignados || solicitud.value?.assigned_technicians || []);
+const attachments = computed(() => solicitud.value?.adjuntos || solicitud.value?.attachments || []);
+const statusHistory = computed(() => solicitud.value?.historial_estados || solicitud.value?.status_history || []);
+const interventions = computed(() => solicitud.value?.intervenciones || solicitud.value?.interventions || []);
+const statusOptions = computed(() => {
+  if (isLabTechnician.value) {
+    return [
+      { value: 'pendiente', label: 'Pendiente' },
+      { value: 'en_proceso', label: 'En proceso' },
+      { value: 'completada', label: 'Completada' },
+      { value: 'cancelada', label: 'Cancelada' },
+    ];
+  }
+
+  if (isTechnician.value) {
+    return [
+      { value: 'en_proceso', label: 'En proceso' },
+      { value: 'completada', label: 'Completada' },
+    ];
+  }
+
+  if (isTeacher.value) {
+    return [
+      { value: 'cancelada', label: 'Cancelada' },
+    ];
+  }
+
+  return [];
+});
+
+const getTechnicianId = (tech) => Number(tech.id || tech.user_id || tech.usuario_id);
+const isTechnicianSelected = (tech) => selectedTechnicians.value.includes(getTechnicianId(tech));
+const getTechnicianLoad = (tech) => tech.active_requests ?? tech.solicitudes_activas ?? tech.activeRequests ?? 0;
+const getTechnicianSpecialty = (tech) => tech.specialty || tech.especialidad || tech.perfil_tecnico?.specialty || tech.perfil_tecnico?.especialidad || 'Sin especialidad';
+
+const syncSelectedTechnicians = () => {
+  selectedTechnicians.value = assignedTechnicians.value
+    .map(getTechnicianId)
+    .filter(Boolean);
+};
+
+const syncStatusForm = () => {
+  if (!statusOptions.value.some((option) => option.value === statusForm.value.estado)) {
+    statusForm.value.estado = statusOptions.value[0]?.value || '';
+  }
+};
 
 const formatPayload = (payload) => {
   if (!payload) return 'Sin datos';
@@ -57,7 +117,7 @@ const equipmentFields = computed(() => buildFields(requestEquipment.value, [
 
 const scheduleFields = computed(() => buildFields(requestSchedule.value, [
   { label: 'Laboratorio', keys: ['laboratorio', 'lab', 'location', 'ubicacion'] },
-  { label: 'Dia', keys: ['dia', 'day'] },
+  { label: 'Día', keys: ['dia', 'day'] },
   { label: 'Hora inicio', keys: ['hora_inicio', 'start_time', 'inicio'] },
   { label: 'Hora fin', keys: ['hora_fin', 'end_time', 'fin'] },
 ]));
@@ -74,6 +134,11 @@ const getAttachmentDate = (file) => {
   return file.fecha_carga || file.created_at || file.fecha || '';
 };
 
+const getHistoryPrevious = (item) => item.estado_anterior || item.previous_status || '';
+const getHistoryNext = (item) => item.estado_nuevo || item.new_status || '';
+const getHistoryReason = (item) => item.motivo || item.reason || '';
+const getHistoryDate = (item) => item.fecha_cambio || item.changed_at || '';
+
 const loadRequest = async (clearActionMessage = true) => {
   loading.value = true;
   error.value = '';
@@ -81,6 +146,8 @@ const loadRequest = async (clearActionMessage = true) => {
 
   try {
     detail.value = await requestService.getRequest(route.params.id);
+    syncSelectedTechnicians();
+    syncStatusForm();
   } catch (err) {
     error.value = getErrorMessage(err);
   } finally {
@@ -112,6 +179,11 @@ const approve = () => {
 };
 
 const changeStatus = () => {
+  if (!statusOptions.value.some((option) => option.value === statusForm.value.estado)) {
+    error.value = 'El rol actual no puede aplicar ese estado.';
+    return;
+  }
+
   runAction(
     () => requestService.changeRequestStatus(route.params.id, statusForm.value.estado, statusForm.value.motivo),
     'Estado actualizado correctamente.',
@@ -133,9 +205,51 @@ const loadTechnicians = async () => {
 };
 
 const reassign = () => {
+  if (!selectedTechnicians.value.length) {
+    error.value = 'Selecciona al menos un técnico para asignar.';
+    return;
+  }
+
   runAction(
     () => requestService.reassignTechnicians(route.params.id, selectedTechnicians.value.map(Number)),
-    'Técnicos reasignados correctamente.',
+    'Técnicos asignados correctamente.',
+  );
+};
+
+const resetInterventionForm = () => {
+  interventionForm.value = {
+    descripcion: '',
+    diagnostico: '',
+    acciones_realizadas: '',
+    repuestos: '',
+    observaciones: '',
+    tiempo_invertido_horas: 1,
+  };
+};
+
+const registerIntervention = () => {
+  if (!interventionForm.value.descripcion.trim()) {
+    error.value = 'La descripción de la intervención es obligatoria.';
+    return;
+  }
+  if (!interventionForm.value.acciones_realizadas.trim()) {
+    error.value = 'Indica las acciones realizadas.';
+    return;
+  }
+
+  runAction(
+    async () => {
+      await requestService.createIntervention(route.params.id, {
+        descripcion: interventionForm.value.descripcion.trim(),
+        diagnostico: interventionForm.value.diagnostico.trim(),
+        acciones_realizadas: interventionForm.value.acciones_realizadas.trim(),
+        repuestos: interventionForm.value.repuestos.trim(),
+        observaciones: interventionForm.value.observaciones.trim(),
+        tiempo_invertido_horas: Number(interventionForm.value.tiempo_invertido_horas) || 0,
+      });
+      resetInterventionForm();
+    },
+    'Intervención registrada correctamente.',
   );
 };
 
@@ -165,7 +279,12 @@ const uploadAttachment = () => {
   );
 };
 
-onMounted(loadRequest);
+onMounted(async () => {
+  await loadRequest();
+  if (canAssignTechnicians.value) {
+    await loadTechnicians();
+  }
+});
 </script>
 
 <template>
@@ -178,8 +297,8 @@ onMounted(loadRequest);
       <RouterLink class="btn secondary" to="/solicitudes">Volver</RouterLink>
     </header>
 
-    <p v-if="loading" class="state">Cargando solicitud...</p>
-    <p v-else-if="error && !solicitud" class="state error">{{ error }}</p>
+    <p v-if="loading" class="state" role="status">Cargando solicitud...</p>
+    <p v-else-if="error && !solicitud" class="state error" role="alert">{{ error }}</p>
 
     <template v-else-if="solicitud">
       <section class="panel">
@@ -195,7 +314,7 @@ onMounted(loadRequest);
           </div>
           <div>
             <dt>Usuario</dt>
-            <dd>{{ solicitud.usuario || solicitud.user || 'Sin usuario' }}</dd>
+            <dd>{{ solicitud.usuario?.name || solicitud.usuario?.nombre || solicitud.usuario || solicitud.user?.name || solicitud.user || 'Sin usuario' }}</dd>
           </div>
           <div>
             <dt>Fecha</dt>
@@ -231,9 +350,9 @@ onMounted(loadRequest);
 
       <section class="panel">
         <h2>Técnicos asignados</h2>
-        <p v-if="!solicitud.tecnicos_asignados?.length" class="state">No hay técnicos asignados.</p>
+        <p v-if="!assignedTechnicians.length" class="state">No hay técnicos asignados.</p>
         <ul v-else class="simple-list">
-          <li v-for="tech in solicitud.tecnicos_asignados" :key="tech.id">
+          <li v-for="tech in assignedTechnicians" :key="tech.id">
             {{ tech.name || tech.nombre || tech.email || tech.id }}
           </li>
         </ul>
@@ -241,9 +360,9 @@ onMounted(loadRequest);
 
       <section class="panel">
         <h2>Adjuntos</h2>
-        <p v-if="!solicitud.adjuntos?.length" class="state">No hay adjuntos cargados.</p>
+        <p v-if="!attachments.length" class="state">No hay adjuntos cargados.</p>
         <ul v-else class="attachment-list">
-          <li v-for="file in solicitud.adjuntos" :key="file.id">
+          <li v-for="file in attachments" :key="file.id || file.adjunto_id">
             <div>
               <strong>{{ getAttachmentName(file) }}</strong>
               <span v-if="file.tipo"> · {{ file.tipo }}</span>
@@ -281,33 +400,33 @@ onMounted(loadRequest);
 
       <section class="panel">
         <h2>Historial de estados</h2>
-        <p v-if="!solicitud.historial_estados?.length" class="state">Aún no hay cambios registrados.</p>
+        <p v-if="!statusHistory.length" class="state">Aún no hay cambios registrados.</p>
         <ul v-else class="simple-list">
-          <li v-for="item in solicitud.historial_estados" :key="`${item.fecha_cambio}-${item.estado_nuevo}`">
-            {{ item.estado_anterior }} -> {{ item.estado_nuevo }} · {{ item.motivo }}
+          <li v-for="item in statusHistory" :key="item.id || `${getHistoryDate(item)}-${getHistoryNext(item)}`">
+            {{ getHistoryPrevious(item) }} -> {{ getHistoryNext(item) }} · {{ getHistoryReason(item) }}
           </li>
         </ul>
       </section>
 
-      <section v-if="isLabTechnician" class="panel">
-        <h2>Acciones de laboratorista</h2>
-        <div class="actions">
-          <button class="btn" type="button" :disabled="actionLoading" @click="approve">
-            Aprobar solicitud
-          </button>
-          <button class="btn secondary" type="button" :disabled="actionLoading" @click="loadTechnicians">
-            Consultar técnicos
-          </button>
-        </div>
+      <section v-if="interventions.length" class="panel">
+        <h2>Intervenciones</h2>
+        <ul class="simple-list">
+          <li v-for="item in interventions" :key="item.id">
+            <strong>{{ item.descripcion || item.description }}</strong>
+            <span v-if="item.observaciones || item.observations"> · {{ item.observaciones || item.observations }}</span>
+          </li>
+        </ul>
+      </section>
 
-        <form class="form split" @submit.prevent="changeStatus">
+      <section class="panel">
+        <h2>Cambio de estado</h2>
+        <form v-if="canChangeStatus" class="form split" @submit.prevent="changeStatus">
           <label>
             Estado
             <select v-model="statusForm.estado">
-              <option value="pendiente">Pendiente</option>
-              <option value="en_proceso">En proceso</option>
-              <option value="completada">Completada</option>
-              <option value="cancelada">Cancelada</option>
+              <option v-for="option in statusOptions" :key="option.value" :value="option.value">
+                {{ option.label }}
+              </option>
             </select>
           </label>
           <label>
@@ -316,22 +435,90 @@ onMounted(loadRequest);
           </label>
           <button class="btn" type="submit" :disabled="actionLoading">Cambiar estado</button>
         </form>
+        <p v-else class="state">No tienes permisos para cambiar el estado.</p>
+      </section>
 
-        <form v-if="technicians.length" class="form" @submit.prevent="reassign">
+      <section v-if="canRegisterInterventions" class="panel">
+        <h2>Registrar intervención</h2>
+        <form class="form" @submit.prevent="registerIntervention">
+          <div class="split">
+            <label>
+              Descripción
+              <input v-model="interventionForm.descripcion" type="text" placeholder="Resumen del trabajo" />
+            </label>
+            <label>
+              Tiempo invertido (horas)
+              <input v-model.number="interventionForm.tiempo_invertido_horas" type="number" min="0" step="0.5" />
+            </label>
+          </div>
           <label>
-            Técnicos disponibles
-            <select v-model="selectedTechnicians" multiple>
-              <option v-for="tech in technicians" :key="tech.id" :value="tech.id">
-                {{ tech.name || tech.nombre || tech.email || tech.id }}
-              </option>
-            </select>
+            Diagnóstico
+            <textarea v-model="interventionForm.diagnostico" rows="3" placeholder="Hallazgo técnico" />
           </label>
-          <button class="btn" type="submit" :disabled="actionLoading">Reasignar técnicos</button>
+          <label>
+            Acciones realizadas
+            <textarea v-model="interventionForm.acciones_realizadas" rows="3" required />
+          </label>
+          <div class="split">
+            <label>
+              Repuestos
+              <input v-model="interventionForm.repuestos" type="text" placeholder="Opcional" />
+            </label>
+            <label>
+              Observaciones
+              <input v-model="interventionForm.observaciones" type="text" placeholder="Opcional" />
+            </label>
+          </div>
+          <button class="btn" type="submit" :disabled="actionLoading">Registrar intervención</button>
         </form>
       </section>
 
-      <p v-if="error" class="state error">{{ error }}</p>
-      <p v-if="actionMessage" class="state success">{{ actionMessage }}</p>
+      <section v-if="canAssignTechnicians" class="panel">
+        <h2>Asignar técnicos</h2>
+        <div class="actions">
+          <button class="btn secondary" type="button" :disabled="actionLoading" @click="loadTechnicians">
+            Actualizar lista
+          </button>
+        </div>
+
+        <p v-if="actionLoading && !technicians.length" class="state" role="status">Cargando técnicos disponibles...</p>
+        <p v-else-if="!technicians.length" class="state">No hay técnicos disponibles para asignar.</p>
+        <form v-if="technicians.length" class="form" @submit.prevent="reassign">
+          <fieldset class="technician-list">
+            <legend>Técnicos disponibles</legend>
+            <label v-for="tech in technicians" :key="getTechnicianId(tech)" class="technician-option">
+              <input
+                v-model="selectedTechnicians"
+                type="checkbox"
+                :value="getTechnicianId(tech)"
+                :disabled="actionLoading"
+              />
+              <span>
+                <strong>{{ tech.name || tech.nombre || tech.email || tech.id }}</strong>
+                <small>
+                  {{ getTechnicianSpecialty(tech) }}
+                  <span v-if="tech.email"> · {{ tech.email }}</span>
+                  <span> · {{ getTechnicianLoad(tech) }} solicitudes activas</span>
+                </small>
+              </span>
+              <em v-if="isTechnicianSelected(tech)">Asignado</em>
+            </label>
+          </fieldset>
+          <button class="btn" type="submit" :disabled="actionLoading">Guardar asignación</button>
+        </form>
+      </section>
+
+      <section v-if="canApproveRequests" class="panel">
+        <h2>Acciones de laboratorista</h2>
+        <div class="actions">
+          <button class="btn" type="button" :disabled="actionLoading" @click="approve">
+            Aprobar solicitud
+          </button>
+        </div>
+      </section>
+
+      <p v-if="error" class="state error" role="alert">{{ error }}</p>
+      <p v-if="actionMessage" class="state success" role="status">{{ actionMessage }}</p>
     </template>
   </div>
 </template>
@@ -410,7 +597,8 @@ label {
 }
 
 input,
-select {
+select,
+textarea {
   min-height: 40px;
   border: 1px solid #cfd6dc;
   border-radius: 6px;
@@ -418,8 +606,52 @@ select {
   font: inherit;
 }
 
+textarea {
+  resize: vertical;
+}
+
 select[multiple] {
   min-height: 120px;
+}
+
+fieldset {
+  border: 1px solid #d7dde2;
+  border-radius: 8px;
+  padding: 14px;
+}
+
+legend {
+  padding: 0 6px;
+  color: #04325e;
+  font-weight: 700;
+}
+
+.technician-list {
+  display: grid;
+  gap: 10px;
+}
+
+.technician-option {
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  padding: 12px;
+  border: 1px solid #edf0f2;
+  border-radius: 8px;
+  background: #f8fafc;
+}
+
+.technician-option small,
+.technician-option em {
+  display: block;
+  color: #59636e;
+  font-size: 0.9rem;
+}
+
+.technician-option em {
+  color: #1f7a3a;
+  font-style: normal;
+  font-weight: 700;
 }
 
 .btn {

@@ -2,6 +2,7 @@
 import { computed, onMounted, ref, watch } from 'vue';
 import { RouterLink, useRouter } from 'vue-router';
 import { dashboardService } from '../services/dashboard_service';
+import { inventoryService } from '../services/inventory_service';
 import { requestService } from '../services/request_service';
 
 const router = useRouter();
@@ -63,6 +64,7 @@ const normalizeLaboratories = (payload) => {
   if (Array.isArray(payload)) return payload;
   if (Array.isArray(payload?.laboratorios)) return payload.laboratorios;
   if (Array.isArray(payload?.laboratories)) return payload.laboratories;
+  if (Array.isArray(payload?.results)) return payload.results;
   return [];
 };
 
@@ -77,16 +79,18 @@ const normalizeSchedules = (payload) => {
 const getEquipmentLabel = (item) => {
   const name = item.name || item.nombre || 'Equipo sin nombre';
   const code = item.inventory_code || item.codigo_inventario || item.codigo || item.id;
-  const location = item.location || item.ubicacion || 'Sin ubicacion';
+  const location = item.location || item.ubicacion || 'Sin ubicación';
   return `${name} - ${code} - ${location}`;
 };
 
 const getScheduleLabel = (item) => {
-  const day = item.dia || item.day || 'Dia sin definir';
+  const day = item.dia || item.day_display || item.day || 'Día sin definir';
   const start = item.hora_inicio || item.start_time || item.inicio || '';
   const end = item.hora_fin || item.end_time || item.fin || '';
   return `${day} ${start}${end ? ` - ${end}` : ''}`;
 };
+
+const getLaboratoryName = (item) => item.name || item.nombre || item.laboratory || item;
 
 const loadEquipment = async () => {
   loadingEquipment.value = true;
@@ -106,7 +110,7 @@ const loadLaboratories = async () => {
   scheduleError.value = '';
 
   try {
-    laboratories.value = normalizeLaboratories(await requestService.getLabSchedule());
+    laboratories.value = normalizeLaboratories(await inventoryService.listLaboratories());
   } catch (err) {
     laboratories.value = [];
     scheduleError.value = getErrorMessage(err);
@@ -123,7 +127,10 @@ const loadSchedules = async (laboratory) => {
   scheduleError.value = '';
 
   try {
-    schedules.value = normalizeSchedules(await requestService.getLabSchedule(laboratory));
+    const selectedLab = laboratories.value.find((item) => getLaboratoryName(item) === laboratory);
+    schedules.value = normalizeSchedules(
+      await inventoryService.listSchedules(selectedLab?.id || ''),
+    ).filter((item) => (item.laboratorio || item.laboratory || '') === laboratory || !selectedLab?.id);
   } catch (err) {
     scheduleError.value = getErrorMessage(err);
   } finally {
@@ -180,7 +187,7 @@ const submitRequest = async () => {
 
   try {
     if (!form.value.descripcion.trim()) {
-      throw new Error('La descripcion es obligatoria.');
+      throw new Error('La descripción es obligatoria.');
     }
 
     const response = await requestService.createRequest(buildPayload());
@@ -204,7 +211,7 @@ const submitRequest = async () => {
     <header class="page-header">
       <div>
         <h1>Nueva solicitud</h1>
-        <p>Completa la informacion basica del mantenimiento.</p>
+        <p>Completa la información básica del mantenimiento.</p>
       </div>
       <RouterLink class="btn secondary" to="/solicitudes">Volver</RouterLink>
     </header>
@@ -228,8 +235,8 @@ const submitRequest = async () => {
         Laboratorio para horario
         <select v-model="form.laboratorio" :disabled="isRegisteredMode && !!selectedEquipment">
           <option value="">Sin laboratorio seleccionado</option>
-          <option v-for="laboratory in laboratories" :key="laboratory" :value="laboratory">
-            {{ laboratory }}
+          <option v-for="laboratory in laboratories" :key="laboratory.id || getLaboratoryName(laboratory)" :value="getLaboratoryName(laboratory)">
+            {{ getLaboratoryName(laboratory) }}
           </option>
         </select>
       </label>
@@ -262,7 +269,7 @@ const submitRequest = async () => {
           <input v-model="equipmentData.name" type="text" />
         </label>
         <label>
-          Codigo inventario
+          Código inventario
           <input v-model="equipmentData.inventory_code" type="text" />
         </label>
         <label>
@@ -274,7 +281,7 @@ const submitRequest = async () => {
           <input v-model="equipmentData.brand" type="text" />
         </label>
         <label>
-          Numero de serie
+          Número de serie
           <input v-model="equipmentData.serial_number" type="text" />
         </label>
         <label>
@@ -295,9 +302,9 @@ const submitRequest = async () => {
         </select>
       </label>
 
-      <p v-if="equipmentError" class="error">{{ equipmentError }}</p>
-      <p v-if="scheduleError" class="error">{{ scheduleError }}</p>
-      <p v-if="error" class="error">{{ error }}</p>
+      <p v-if="equipmentError" class="error" role="alert">{{ equipmentError }}</p>
+      <p v-if="scheduleError" class="error" role="alert">{{ scheduleError }}</p>
+      <p v-if="error" class="error" role="alert">{{ error }}</p>
 
       <button class="btn" type="submit" :disabled="loading">
         {{ loading ? 'Creando...' : 'Crear solicitud' }}

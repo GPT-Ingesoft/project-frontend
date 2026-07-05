@@ -27,6 +27,30 @@ export const dashboardService = {
     return res.data;
   },
 
+  async getMaintenanceEquipment() {
+    if (isDemoMode()) {
+      const response = await inventoryService.listEquipment();
+      return {
+        equipos: (response.equipos || []).filter((item) => item.status === 'en_mantenimiento' || item.estado === 'en_mantenimiento'),
+      };
+    }
+
+    const res = await api.get('/panel/equipos-mantenimiento/');
+    return res.data;
+  },
+
+  async getDecommissionedEquipment() {
+    if (isDemoMode()) {
+      const response = await inventoryService.listEquipment();
+      return {
+        equipos: (response.equipos || []).filter((item) => item.status === 'dado_de_baja' || item.estado === 'dado_de_baja'),
+      };
+    }
+
+    const res = await api.get('/panel/equipos-dados-de-baja/');
+    return res.data;
+  },
+
   async getRequestDashboard() {
     if (isDemoMode()) {
       const { solicitudes } = await requestService.listRequests();
