@@ -35,7 +35,7 @@ export const permissions = {
   isTeacher: () => getUserRole() === 'docente',
   canManageUsers: () => getUserRole() === 'laboratorista',
   canManageInventory: () => getUserRole() === 'laboratorista',
-  canViewReports: () => getUserRole() === 'laboratorista',
+  canViewReports: () => ['laboratorista', 'tecnico'].includes(getUserRole()),
   canManageRequests: () => getUserRole() === 'laboratorista',
   canAssignTechnicians: () => getUserRole() === 'laboratorista',
   canApproveRequests: () => getUserRole() === 'laboratorista',

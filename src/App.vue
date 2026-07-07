@@ -12,7 +12,7 @@ const navItems = computed(() => [
   { label: 'Panel', to: '/', roles: [] },
   { label: 'Inventario', to: '/inventario', roles: ['laboratorista'] },
   { label: 'Usuarios', to: '/usuarios', roles: ['laboratorista'] },
-  { label: 'Reportes', to: '/reportes', roles: ['laboratorista'] },
+  { label: 'Reportes', to: '/reportes', roles: ['laboratorista', 'tecnico'] },
   { label: 'Solicitudes', to: '/solicitudes', roles: [] },
   { label: 'Nueva solicitud', to: '/solicitudes/nueva', roles: ['docente', 'laboratorista'] },
 ]);
