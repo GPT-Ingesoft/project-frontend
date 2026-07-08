@@ -54,7 +54,7 @@ const routes = [
     path: '/reportes',
     name: 'Reports',
     component: () => import('../views/reports_view.vue'),
-    meta: { requiresAuth: true, roles: ['laboratorista'] }
+    meta: { requiresAuth: true, roles: ['laboratorista', 'tecnico'] }
   },
   {
     path: '/sin-permisos',

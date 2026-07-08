@@ -2,6 +2,8 @@
 import { onMounted, ref } from 'vue';
 import { adminService } from '../services/admin_service';
 import { getErrorMessage } from '../services/error_service';
+import { getUserRole } from '../services/auth_service';
+import ReportExportActions from '../components/report_export_actions.vue';
 
 const loading = ref(true);
 const error = ref('');
@@ -11,6 +13,7 @@ const repairTimes = ref([]);
 const outOfService = ref([]);
 const notifications = ref([]);
 const selectedNotification = ref(null);
+const canManageReports = getUserRole() === 'laboratorista';
 
 const normalizeItems = (payload, keys = []) => {
   if (Array.isArray(payload)) return payload;
@@ -30,7 +33,7 @@ const loadReports = async () => {
       adminService.getFailureReport(),
       adminService.getRepairTimeReport(),
       adminService.getOutOfServiceReport(thresholdDays.value),
-      adminService.getNotifications(),
+      canManageReports ? adminService.getNotifications() : Promise.resolve({ notificaciones: [] }),
     ]);
 
     failures.value = normalizeItems(failureResponse, ['equipos']);
@@ -45,6 +48,7 @@ const loadReports = async () => {
 };
 
 const loadThreshold = async () => {
+  if (!canManageReports) return;
   try {
     const response = await adminService.getOutOfServiceThreshold();
     thresholdDays.value = response.umbral_dias ?? thresholdDays.value;
@@ -102,10 +106,12 @@ onMounted(async () => {
       <button class="btn" type="button" :disabled="loading" @click="loadReports">
         {{ loading ? 'Cargando...' : 'Actualizar reportes' }}
       </button>
-      <button class="btn secondary" type="button" :disabled="loading" @click="saveThreshold">
+      <button v-if="canManageReports" class="btn secondary" type="button" :disabled="loading" @click="saveThreshold">
         Guardar umbral
       </button>
     </section>
+
+    <ReportExportActions :threshold-days="thresholdDays" :disabled="loading" />
 
     <p v-if="error" class="state error" role="alert">{{ error }}</p>
     <p v-if="loading" class="state" role="status">Cargando reportes...</p>
@@ -190,7 +196,7 @@ onMounted(async () => {
         </div>
       </section>
 
-      <section class="panel">
+      <section v-if="canManageReports" class="panel">
         <h2>Notificaciones</h2>
         <p v-if="!loading && notifications.length === 0" class="state">No hay notificaciones.</p>
         <ul v-else class="notification-list">
